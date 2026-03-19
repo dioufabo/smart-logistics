@@ -1,0 +1,97 @@
+version: "3.8"
+
+services:
+
+  # --- PostgreSQL (Service Commandes) ---
+  postgres-commandes:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: commandes_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - logistics-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+
+  # --- Service Commandes (FastAPI) ---
+  service-commandes:
+    image: smart-logistics/service-commandes:latest
+    environment:
+      DATABASE_URL: postgresql://user:password@postgres-commandes:5432/commandes_db
+      LIVRAISONS_URL: http://service-livraisons:8001
+    ports:
+      - "8000:8000"
+    networks:
+      - logistics-net
+    deploy:
+      replicas: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+
+  # --- MongoDB (Service Livraisons) ---
+  mongo-livraisons:
+    image: mongo:7
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - logistics-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+
+  # --- Service Livraisons (GraphQL) ---
+  service-livraisons:
+    image: smart-logistics/service-livraisons:latest
+    environment:
+      MONGO_URL: mongodb://mongo-livraisons:27017
+      MONGO_DB: livraisons_db
+    ports:
+      - "8001:8001"
+    networks:
+      - logistics-net
+    deploy:
+      replicas: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+
+  # --- Portainer (Monitoring) ---
+  portainer:
+    image: portainer/portainer-ce:latest
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - logistics-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+
+networks:
+  logistics-net:
+    driver: overlay
+    attachable: true
+
+volumes:
+  postgres_data:
+  mongo_data:
+  portainer_data:
